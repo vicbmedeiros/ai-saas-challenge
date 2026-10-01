@@ -356,3 +356,10 @@ Foram validados os seguintes cenários:
 - chat da Tech Store retorna apenas produtos da Tech Store
 - chat da Beauty Store retorna apenas produtos da Beauty Store
 - tool calling consulta dados reais do MongoDB
+
+## Docker
+
+Também é possível subir o MongoDB localmente com Docker:
+
+```bash
+docker compose up -d
