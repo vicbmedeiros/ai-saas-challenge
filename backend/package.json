@@ -1,16 +1,24 @@
 {
-  "name": "backend",
+  "name": "ai-commerce-backend",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-      "scripts": {
-      "dev": "tsx watch src/server.ts",
-      "start": "tsx src/server.ts",
-      "seed": "tsx src/scripts/seed.ts",
-      "test": "vitest run",
-      "test:watch": "vitest"
-    },
-  "keywords": [],
+  "description": "Backend API for the AI Commerce multi-tenant SaaS challenge",
+  "main": "dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "seed": "tsx src/scripts/seed.ts",
+    "test": "vitest run src/tests",
+    "test:watch": "vitest src/tests"
+  },
+  "keywords": [
+    "node",
+    "express",
+    "typescript",
+    "mongodb",
+    "openai",
+    "multi-tenant"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {

@@ -1,23 +1,27 @@
-import { Request, Response } from "express";
+import type { Request, Response } from "express";
+
 import { chatWithAgent } from "../services/chat.service";
+import { chatSchema } from "../validators/chat.validator";
 
 export async function chat(req: Request, res: Response) {
   try {
-    const { message } = req.body;
+    const parsed = chatSchema.safeParse(req.body);
 
-    if (!message) {
+    if (!parsed.success) {
       return res.status(400).json({
-        message: "Message is required",
+        message: "Invalid input",
+        errors: parsed.error.flatten(),
       });
     }
 
     const response = await chatWithAgent(
-      message,
-      req.user!.companyId
+      parsed.data.message,
+      req.user!.companyId,
+      parsed.data.history
     );
 
     return res.json({
-      message: response,
+      response,
     });
   } catch (error) {
     console.error(error);

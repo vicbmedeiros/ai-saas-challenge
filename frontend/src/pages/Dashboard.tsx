@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { api } from "../api/api";
@@ -35,6 +35,7 @@ export function Dashboard() {
 
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -54,6 +55,18 @@ export function Dashboard() {
   useEffect(() => {
     loadProducts();
   }, []);
+
+  const filteredProducts = useMemo(() => {
+    const term = search.trim().toLowerCase();
+
+    if (!term) return products;
+
+    return products.filter((product) =>
+      `${product.name} ${product.description} ${product.category}`
+        .toLowerCase()
+        .includes(term)
+    );
+  }, [products, search]);
 
   function handleLogout() {
     logout();
@@ -141,67 +154,110 @@ export function Dashboard() {
   return (
     <div className="dashboard-page">
       <header className="topbar">
-        <div>
-          <strong>AI Commerce</strong>
-          <span>{user?.email}</span>
+        <div className="topbar-brand">
+          <div className="brand">
+            <span className="brand-ai">AI</span>
+            <span>Commerce</span>
+          </div>
+
+          <nav className="topbar-tabs">
+            <button className="active">Produtos</button>
+            <button onClick={() => navigate("/chat")}>
+              Assistente IA
+            </button>
+          </nav>
         </div>
 
-        <nav>
-          <button onClick={() => navigate("/chat")}>Chat IA</button>
-          <button onClick={handleLogout}>Sair</button>
-        </nav>
+        <div className="user-menu">
+          <div className="avatar">
+            {user?.name?.[0]?.toUpperCase() || "A"}
+          </div>
+
+          <div className="user-meta">
+            <strong>{user?.name || "Admin"}</strong>
+            <span>{user?.email}</span>
+          </div>
+
+          <button className="logout-button" onClick={handleLogout}>
+            Sair
+          </button>
+        </div>
       </header>
 
       <main className="dashboard-content">
         <div className="dashboard-heading">
           <div>
+            <span className="eyebrow">CATÁLOGO</span>
             <h1>Produtos</h1>
-            <p>Produtos disponíveis para sua empresa.</p>
+            <p>
+              {products.length} produtos disponíveis para sua empresa
+            </p>
           </div>
 
           {user?.role === "admin" && (
-            <button
-              className="primary-button"
-              onClick={openCreateModal}
-            >
+            <button className="primary-button" onClick={openCreateModal}>
               + Novo produto
             </button>
           )}
         </div>
 
+        <div className="catalog-toolbar">
+          <div className="search-field">
+            <span>⌕</span>
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar produtos ou categorias..."
+            />
+          </div>
+
+          <div className="product-count">
+            {filteredProducts.length} itens
+          </div>
+        </div>
+
         {loading ? (
-          <p>Carregando...</p>
+          <div className="loading-state">Carregando catálogo...</div>
         ) : (
           <div className="product-grid">
-            {products.map((product) => (
+            {filteredProducts.map((product) => (
               <article className="product-card" key={product._id}>
-                <img src={product.imageUrl} alt={product.name} />
+                <div className="product-image-wrap">
+                  <img src={product.imageUrl} alt={product.name} />
+                </div>
 
                 <div className="product-card-content">
-                  <span className="category">{product.category}</span>
+                  <span className="category">
+                    {product.category}
+                  </span>
 
                   <h2>{product.name}</h2>
 
                   <p>{product.description}</p>
 
-                  <strong>
-                    {product.price.toLocaleString("pt-BR", {
-                      style: "currency",
-                      currency: "BRL",
-                    })}
-                  </strong>
+                  <div className="product-bottom">
+                    <strong>
+                      {product.price.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL",
+                      })}
+                    </strong>
 
-                  {user?.role === "admin" && (
-                    <div className="product-actions">
-                      <button onClick={() => openEditModal(product)}>
-                        Editar
-                      </button>
+                    {user?.role === "admin" && (
+                      <div className="product-actions">
+                        <button onClick={() => openEditModal(product)}>
+                          Editar
+                        </button>
 
-                      <button onClick={() => handleDelete(product)}>
-                        Excluir
-                      </button>
-                    </div>
-                  )}
+                        <button
+                          className="delete-button"
+                          onClick={() => handleDelete(product)}
+                        >
+                          Excluir
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </article>
             ))}
@@ -214,9 +270,14 @@ export function Dashboard() {
           <div className="modal">
             <div className="modal-header">
               <div>
+                <span className="eyebrow">
+                  {editingProduct ? "EDIÇÃO" : "NOVO ITEM"}
+                </span>
+
                 <h2>
                   {editingProduct ? "Editar produto" : "Novo produto"}
                 </h2>
+
                 <p>
                   {editingProduct
                     ? "Atualize os dados do produto."
@@ -239,6 +300,7 @@ export function Dashboard() {
                 <input
                   value={form.name}
                   onChange={(e) => updateField("name", e.target.value)}
+                  placeholder="Ex: Mouse sem fio"
                   required
                 />
               </label>
@@ -250,6 +312,7 @@ export function Dashboard() {
                   onChange={(e) =>
                     updateField("description", e.target.value)
                   }
+                  placeholder="Descreva o produto..."
                   required
                 />
               </label>
@@ -263,6 +326,7 @@ export function Dashboard() {
                     step="0.01"
                     value={form.price}
                     onChange={(e) => updateField("price", e.target.value)}
+                    placeholder="0,00"
                     required
                   />
                 </label>
@@ -274,6 +338,7 @@ export function Dashboard() {
                     onChange={(e) =>
                       updateField("category", e.target.value)
                     }
+                    placeholder="Ex: Acessórios"
                     required
                   />
                 </label>
@@ -286,6 +351,7 @@ export function Dashboard() {
                   onChange={(e) =>
                     updateField("imageUrl", e.target.value)
                   }
+                  placeholder="https://..."
                   required
                 />
               </label>

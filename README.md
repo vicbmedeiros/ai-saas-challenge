@@ -15,6 +15,8 @@ A aplicação permite que diferentes empresas gerenciem seus próprios produtos 
 - Mongoose
 - JWT
 - OpenAI API
+- Zod
+- Vitest
 
 ### Frontend
 
@@ -27,14 +29,21 @@ A aplicação permite que diferentes empresas gerenciem seus próprios produtos 
 ## Funcionalidades
 
 - Registro e login com JWT
+- Login case-insensitive
 - Roles `admin` e `user`
 - Isolamento multi-tenant por `company_id`
 - CRUD de produtos
 - Permissões por role
+- Validação de entrada com Zod
 - Chat com IA utilizando tool calling
+- Múltiplas rodadas de tool calling
+- Histórico de conversa no chat
 - Consulta de produtos reais no MongoDB
-- Seed com 2 empresas e 10+ produtos por empresa
-- Interface responsiva
+- Busca por texto, categoria e faixa de preço
+- Seed com 2 empresas e 10+ produtos realistas por empresa
+- Testes automatizados de isolamento multi-tenant
+- Interface responsiva e moderna
+- Docker Compose para MongoDB local
 
 ## Estrutura
 
@@ -48,11 +57,14 @@ backend/
     routes/
     services/
     tools/
+    validators/
     scripts/
+    tests/
 
 frontend/
   src/
     api/
+    components/
     context/
     pages/
 ```
@@ -63,7 +75,9 @@ A aplicação segue uma separação simples de responsabilidades:
 - Services concentram as regras de negócio
 - Middlewares tratam autenticação e autorização
 - Models representam os dados
+- Validators validam os inputs da aplicação
 - Tools representam ações executadas pelo agente de IA
+- Tests validam regras críticas de segurança e isolamento
 
 A ideia foi manter a arquitetura simples e fácil de evoluir, evitando abstrações que não agregariam valor para o escopo do desafio.
 
@@ -98,7 +112,7 @@ Rode o seed:
 npm run seed
 ```
 
-Depois inicie a API:
+Inicie a API em desenvolvimento:
 
 ```bash
 npm run dev
@@ -114,6 +128,19 @@ Teste rápido:
 
 ```text
 GET /health
+```
+
+### Build do backend
+
+```bash
+npm run build
+npm start
+```
+
+### Testes do backend
+
+```bash
+npm test
 ```
 
 ### 2. Frontend
@@ -140,6 +167,12 @@ A aplicação ficará disponível normalmente em:
 
 ```text
 http://localhost:5173
+```
+
+### Build do frontend
+
+```bash
+npm run build
 ```
 
 ## Usuários de teste
@@ -213,6 +246,23 @@ e não apenas:
 
 Isso impede que um usuário de uma empresa acesse um produto pertencente a outro tenant, mesmo que conheça seu `_id`.
 
+### Proteção contra alteração de tenant
+
+No create e update, o body da requisição passa por schemas Zod.
+
+Campos não permitidos, como:
+
+```text
+company_id
+_id
+```
+
+não fazem parte dos schemas de produto e não chegam ao service.
+
+Dessa forma, um administrador não consegue mover um produto para outra empresa enviando manualmente um `company_id` no payload.
+
+Essa regra também possui teste automatizado.
+
 ## Autenticação e permissões
 
 A autenticação utiliza JWT.
@@ -240,6 +290,8 @@ A autorização é validada no backend por middleware.
 
 A ausência dos botões administrativos no frontend é apenas uma melhoria de experiência e não representa a camada de segurança.
 
+Os e-mails são normalizados para lowercase no registro e no login.
+
 ## Agente de IA
 
 O endpoint:
@@ -248,9 +300,16 @@ O endpoint:
 POST /chat
 ```
 
-recebe uma mensagem do usuário autenticado.
+recebe:
 
-O LLM possui acesso a uma tool:
+```json
+{
+  "message": "Quais acessórios custam menos de 300 reais?",
+  "history": []
+}
+```
+
+O LLM possui acesso à tool:
 
 ```text
 search_products
@@ -263,18 +322,24 @@ Essa tool permite buscar produtos utilizando filtros como:
 - preço mínimo
 - preço máximo
 
-O LLM pode decidir quais filtros utilizar, mas nunca controla o `company_id`.
+O `company_id` nunca é exposto como argumento da tool.
 
-O fluxo é:
+Ele é injetado pelo backend a partir do usuário autenticado.
+
+## Fluxo do agente
 
 ```text
 Usuário
   ↓
 POST /chat
   ↓
+Histórico da conversa
+  ↓
 LLM
   ↓
 Tool calling
+  ↓
+Validação dos argumentos com Zod
   ↓
 search_products
   ↓
@@ -284,10 +349,36 @@ Filtro obrigatório por company_id
   ↓
 Resultado retorna ao LLM
   ↓
+Nova rodada de tool calling, se necessário
+  ↓
 Resposta final
 ```
 
-Essa decisão permite que a IA consulte dados reais sem ter liberdade para acessar informações de outro tenant.
+O agente pode executar múltiplas rodadas de tools, com limite de segurança.
+
+Isso permite consultas mais complexas e perguntas de continuação como:
+
+```text
+Quais produtos custam menos de 300 reais?
+```
+
+seguido de:
+
+```text
+E qual deles é o mais barato?
+```
+
+O histórico é limitado para evitar crescimento indefinido do contexto.
+
+## Segurança da busca
+
+Os argumentos retornados pelo modelo são validados antes da execução.
+
+A tool utiliza Zod para garantir os tipos esperados.
+
+Também é feito escape dos valores usados em expressões regulares antes da consulta ao MongoDB.
+
+Isso evita que caracteres especiais enviados pelo usuário quebrem a query ou sejam interpretados como regex não intencional.
 
 ## Decisões arquiteturais
 
@@ -307,9 +398,13 @@ A IA pode decidir o que deseja buscar, mas o backend controla onde a busca será
 
 O `company_id` não faz parte dos argumentos expostos ao modelo.
 
+### Validação na fronteira da aplicação
+
+Inputs de autenticação, produtos, chat e argumentos das tools são validados com Zod antes de chegar à lógica principal.
+
 ### Controllers finos
 
-Controllers lidam apenas com a camada HTTP.
+Controllers lidam principalmente com a camada HTTP.
 
 As regras ficam em services, facilitando manutenção, testes e evolução.
 
@@ -319,33 +414,28 @@ Evitei patterns e abstrações adicionais que não fossem necessários para o es
 
 A prioridade foi manter separação clara de responsabilidades e código fácil de entender e evoluir.
 
-## O que eu faria diferente em produção
+## Testes automatizados
 
-Para um ambiente de produção, eu adicionaria:
+Os testes utilizam Vitest e MongoDB Memory Server.
 
-- validação mais rígida dos inputs
-- refresh tokens
-- rate limiting
-- logs estruturados
-- monitoramento e observabilidade
-- tracing das chamadas ao LLM
-- testes automatizados de isolamento multi-tenant
-- testes de integração
-- audit logs
-- gerenciamento de secrets
-- proteção adicional contra prompt injection
-- cache onde aplicável
-- índices adicionais baseados no padrão real de consultas
-- CI/CD
-- Docker Compose
-- estratégia de escalabilidade da API
-- tratamento centralizado de erros
+Atualmente são validados cenários críticos de isolamento multi-tenant:
 
-Também avaliaria limites de uso por tenant e mecanismos de controle de custo para chamadas ao LLM.
+- Empresa B não consegue ler produto da Empresa A
+- Empresa B não consegue editar produto da Empresa A
+- Empresa B não consegue excluir produto da Empresa A
+- `searchProducts` retorna apenas produtos do tenant autenticado
+- payload de update contendo `company_id` não altera o tenant do produto
+
+Para executar:
+
+```bash
+cd backend
+npm test
+```
 
 ## Testes manuais realizados
 
-Foram validados os seguintes cenários:
+Também foram validados manualmente:
 
 - admin cria produto
 - admin edita produto
@@ -356,6 +446,10 @@ Foram validados os seguintes cenários:
 - chat da Tech Store retorna apenas produtos da Tech Store
 - chat da Beauty Store retorna apenas produtos da Beauty Store
 - tool calling consulta dados reais do MongoDB
+- filtros por categoria e preço
+- perguntas de continuação utilizando histórico
+- login com e-mail utilizando letras maiúsculas e minúsculas
+- IDs de produto inválidos retornam erro controlado
 
 ## Docker
 
@@ -363,3 +457,42 @@ Também é possível subir o MongoDB localmente com Docker:
 
 ```bash
 docker compose up -d
+```
+
+O MongoDB ficará disponível em:
+
+```text
+mongodb://localhost:27017
+```
+
+Para utilizar o banco local, configure:
+
+```env
+MONGODB_URI=mongodb://localhost:27017/ai-commerce
+```
+
+## O que eu faria diferente em produção
+
+Para um ambiente de produção, eu adicionaria:
+
+- refresh tokens e estratégia de revogação
+- revalidação de role durante sessões longas
+- rate limiting por usuário e tenant
+- CORS restrito aos domínios permitidos
+- políticas mais rígidas para `JWT_SECRET`
+- logs estruturados
+- monitoramento e observabilidade
+- tracing das chamadas ao LLM
+- testes adicionais de integração e end-to-end
+- audit logs
+- gerenciamento centralizado de secrets
+- proteção adicional contra prompt injection
+- limites de uso por tenant
+- controle de custo das chamadas ao LLM
+- persistência server-side do histórico de conversa
+- transactions no fluxo de criação de empresa e usuário
+- convite de usuários para empresas existentes
+- índices adicionais baseados no padrão real de consultas
+- CI/CD
+- estratégia de escalabilidade da API
+- tratamento centralizado de erros

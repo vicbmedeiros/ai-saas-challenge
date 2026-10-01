@@ -1,35 +1,66 @@
+import { z } from "zod";
+
 import { Product } from "../models/Product";
 
-type SearchProductsInput = {
-  search?: string;
-  category?: string;
-  minPrice?: number;
-  maxPrice?: number;
-};
+const searchProductsSchema = z.object({
+  search: z.string().max(200).optional(),
+  category: z.string().max(100).optional(),
+  minPrice: z.number().nonnegative().optional(),
+  maxPrice: z.number().nonnegative().optional(),
+});
+
+export type SearchProductsInput = z.infer<
+  typeof searchProductsSchema
+>;
+
+function escapeRegex(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function parseSearchProductsInput(input: unknown) {
+  return searchProductsSchema.safeParse(input);
+}
 
 export async function searchProducts(
   input: SearchProductsInput,
   companyId: string
 ) {
-  const query: any = {
+  const query: Record<string, any> = {
     company_id: companyId,
   };
 
   if (input.search) {
+    const safeSearch = escapeRegex(input.search);
+
     query.$or = [
-      { name: { $regex: input.search, $options: "i" } },
-      { description: { $regex: input.search, $options: "i" } },
+      {
+        name: {
+          $regex: safeSearch,
+          $options: "i",
+        },
+      },
+      {
+        description: {
+          $regex: safeSearch,
+          $options: "i",
+        },
+      },
     ];
   }
 
   if (input.category) {
+    const safeCategory = escapeRegex(input.category);
+
     query.category = {
-      $regex: `^${input.category}$`,
+      $regex: `^${safeCategory}$`,
       $options: "i",
     };
   }
 
-  if (input.minPrice !== undefined || input.maxPrice !== undefined) {
+  if (
+    input.minPrice !== undefined ||
+    input.maxPrice !== undefined
+  ) {
     query.price = {};
 
     if (input.minPrice !== undefined) {

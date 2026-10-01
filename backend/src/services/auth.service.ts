@@ -16,6 +16,10 @@ type LoginInput = {
   password: string;
 };
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
 function signToken(user: any) {
   const secret = process.env.JWT_SECRET;
 
@@ -30,12 +34,20 @@ function signToken(user: any) {
       role: user.role,
     },
     secret,
-    { expiresIn: "8h" }
+    {
+      expiresIn: "8h",
+    }
   );
 }
 
-export async function registerUser(input: RegisterInput) {
-  const existingUser = await User.findOne({ email: input.email });
+export async function registerUser(
+  input: RegisterInput
+) {
+  const email = normalizeEmail(input.email);
+
+  const existingUser = await User.findOne({
+    email,
+  });
 
   if (existingUser) {
     throw new Error("Email already registered");
@@ -45,11 +57,14 @@ export async function registerUser(input: RegisterInput) {
     name: input.companyName,
   });
 
-  const passwordHash = await bcrypt.hash(input.password, 12);
+  const passwordHash = await bcrypt.hash(
+    input.password,
+    12
+  );
 
   const user = await User.create({
     name: input.name,
-    email: input.email,
+    email,
     passwordHash,
     role: "admin",
     company_id: company._id,
@@ -67,8 +82,14 @@ export async function registerUser(input: RegisterInput) {
   };
 }
 
-export async function loginUser(input: LoginInput) {
-  const user = await User.findOne({ email: input.email });
+export async function loginUser(
+  input: LoginInput
+) {
+  const email = normalizeEmail(input.email);
+
+  const user = await User.findOne({
+    email,
+  });
 
   if (!user) {
     throw new Error("Invalid credentials");

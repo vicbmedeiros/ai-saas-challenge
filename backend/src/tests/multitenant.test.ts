@@ -1,129 +1,193 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import mongoose from "mongoose";
-import { MongoMemoryServer } from "mongodb-memory-server";
-
-import { Company } from "../models/Company";
-import { Product } from "../models/Product";
 import {
-  deleteProduct,
-  getProductById,
-  updateProduct,
-} from "../services/product.service";
-import { searchProducts } from "../tools/searchProducts.tool";
+    afterAll,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+  } from "vitest";
 
-let mongoServer: MongoMemoryServer;
+  import mongoose from "mongoose";
+  import { MongoMemoryServer } from "mongodb-memory-server";
 
-describe("Multi-tenant isolation", () => {
-  let companyAId: string;
-  let companyBId: string;
-  let productAId: string;
+  import { Company } from "../models/Company";
+  import { Product } from "../models/Product";
 
-  beforeAll(async () => {
-    mongoServer = await MongoMemoryServer.create();
+  import {
+    deleteProduct,
+    getProductById,
+    updateProduct,
+  } from "../services/product.service";
 
-    await mongoose.connect(mongoServer.getUri());
-  });
+  import { searchProducts } from "../tools/searchProducts.tool";
+  import { productUpdateSchema } from "../validators/product.validator";
 
-  afterAll(async () => {
-    await mongoose.disconnect();
-    await mongoServer.stop();
-  });
+  let mongoServer: MongoMemoryServer;
 
-  beforeEach(async () => {
-    await Promise.all([
-      Company.deleteMany({}),
-      Product.deleteMany({}),
-    ]);
+  describe("Multi-tenant isolation", () => {
+    let companyAId: string;
+    let companyBId: string;
+    let productAId: string;
 
-    const companyA = await Company.create({
-      name: "Company A",
+    beforeAll(async () => {
+      mongoServer = await MongoMemoryServer.create();
+
+      await mongoose.connect(mongoServer.getUri());
     });
 
-    const companyB = await Company.create({
-      name: "Company B",
+    afterAll(async () => {
+      await mongoose.disconnect();
+      await mongoServer.stop();
     });
 
-    companyAId = companyA._id.toString();
-    companyBId = companyB._id.toString();
+    beforeEach(async () => {
+      await Promise.all([
+        Company.deleteMany({}),
+        Product.deleteMany({}),
+      ]);
 
-    const productA = await Product.create({
-      name: "Product A",
-      description: "Private product from Company A",
-      price: 100,
-      category: "Test",
-      imageUrl: "https://example.com/product-a.jpg",
-      company_id: companyAId,
+      const companyA = await Company.create({
+        name: "Company A",
+      });
+
+      const companyB = await Company.create({
+        name: "Company B",
+      });
+
+      companyAId = companyA._id.toString();
+      companyBId = companyB._id.toString();
+
+      const productA = await Product.create({
+        name: "Product A",
+        description: "Private product from Company A",
+        price: 100,
+        category: "Test",
+        imageUrl: "https://example.com/product-a.jpg",
+        company_id: companyAId,
+      });
+
+      await Product.create({
+        name: "Product B",
+        description: "Private product from Company B",
+        price: 200,
+        category: "Test",
+        imageUrl: "https://example.com/product-b.jpg",
+        company_id: companyBId,
+      });
+
+      productAId = productA._id.toString();
     });
 
-    await Product.create({
-      name: "Product B",
-      description: "Private product from Company B",
-      price: 200,
-      category: "Test",
-      imageUrl: "https://example.com/product-b.jpg",
-      company_id: companyBId,
+    it("does not allow Company B to read a Company A product", async () => {
+      const product = await getProductById(
+        productAId,
+        companyBId
+      );
+
+      expect(product).toBeNull();
     });
 
-    productAId = productA._id.toString();
+    it("does not allow Company B to update a Company A product", async () => {
+      const product = await updateProduct(
+        productAId,
+        {
+          name: "Hacked product",
+        },
+        companyBId
+      );
+
+      expect(product).toBeNull();
+
+      const originalProduct = await Product.findById(productAId);
+
+      expect(originalProduct?.name).toBe("Product A");
+    });
+
+    it("does not allow Company B to delete a Company A product", async () => {
+      const product = await deleteProduct(
+        productAId,
+        companyBId
+      );
+
+      expect(product).toBeNull();
+
+      const originalProduct = await Product.findById(productAId);
+
+      expect(originalProduct).not.toBeNull();
+    });
+
+    it("searchProducts only returns products from the authenticated company", async () => {
+      const resultsA = await searchProducts(
+        {},
+        companyAId
+      );
+
+      expect(resultsA).toHaveLength(1);
+      expect(resultsA[0]?.name).toBe("Product A");
+
+      const namesA = resultsA.map(
+        (product) => product.name
+      );
+
+      expect(namesA).toContain("Product A");
+      expect(namesA).not.toContain("Product B");
+
+      const resultsB = await searchProducts(
+        {},
+        companyBId
+      );
+
+      expect(resultsB).toHaveLength(1);
+      expect(resultsB[0]?.name).toBe("Product B");
+
+      const namesB = resultsB.map(
+        (product) => product.name
+      );
+
+      expect(namesB).toContain("Product B");
+      expect(namesB).not.toContain("Product A");
+    });
+
+    it("does not allow changing company_id through update payload", async () => {
+      const maliciousPayload = {
+        name: "Updated Product",
+        company_id: companyBId,
+        _id: "malicious-id",
+      };
+
+      const parsed = productUpdateSchema.parse(
+        maliciousPayload
+      );
+
+      expect(parsed).toEqual({
+        name: "Updated Product",
+      });
+
+      expect(parsed).not.toHaveProperty("company_id");
+      expect(parsed).not.toHaveProperty("_id");
+
+      const product = await updateProduct(
+        productAId,
+        parsed,
+        companyAId
+      );
+
+      expect(product).not.toBeNull();
+
+      const storedProduct = await Product.findById(
+        productAId
+      );
+
+      expect(storedProduct?.name).toBe(
+        "Updated Product"
+      );
+
+      expect(
+        storedProduct?.company_id.toString()
+      ).toBe(companyAId);
+
+      expect(
+        storedProduct?.company_id.toString()
+      ).not.toBe(companyBId);
+    });
   });
-
-  it("does not allow Company B to read a Company A product", async () => {
-    const product = await getProductById(
-      productAId,
-      companyBId
-    );
-
-    expect(product).toBeNull();
-  });
-
-  it("does not allow Company B to update a Company A product", async () => {
-    const product = await updateProduct(
-      productAId,
-      {
-        name: "Hacked product",
-      },
-      companyBId
-    );
-
-    expect(product).toBeNull();
-
-    const originalProduct = await Product.findById(productAId);
-
-    expect(originalProduct?.name).toBe("Product A");
-  });
-
-  it("does not allow Company B to delete a Company A product", async () => {
-    const product = await deleteProduct(
-      productAId,
-      companyBId
-    );
-
-    expect(product).toBeNull();
-
-    const originalProduct = await Product.findById(productAId);
-
-    expect(originalProduct).not.toBeNull();
-  });
-
-  it("searchProducts only returns products from the authenticated company", async () => {
-    const resultsA = await searchProducts({}, companyAId);
-  
-    expect(resultsA).toHaveLength(1);
-    expect(resultsA[0]?.name).toBe("Product A");
-  
-    const namesA = resultsA.map((product) => product.name);
-  
-    expect(namesA).toContain("Product A");
-    expect(namesA).not.toContain("Product B");
-  
-    const resultsB = await searchProducts({}, companyBId);
-  
-    expect(resultsB).toHaveLength(1);
-    expect(resultsB[0]?.name).toBe("Product B");
-  
-    const namesB = resultsB.map((product) => product.name);
-  
-    expect(namesB).toContain("Product B");
-    expect(namesB).not.toContain("Product A");
-  });
-});
