@@ -15,8 +15,16 @@ export async function list(req: Request, res: Response) {
 }
 
 export async function getById(req: Request, res: Response) {
+  const productId = req.params.id;
+
+  if (typeof productId !== "string") {
+    return res.status(400).json({
+      message: "Invalid product id",
+    });
+  }
+
   const product = await getProductById(
-    req.params.id,
+    productId,
     req.user!.companyId
   );
 
@@ -39,8 +47,16 @@ export async function create(req: Request, res: Response) {
 }
 
 export async function update(req: Request, res: Response) {
+  const productId = req.params.id;
+
+  if (typeof productId !== "string") {
+    return res.status(400).json({
+      message: "Invalid product id",
+    });
+  }
+
   const product = await updateProduct(
-    req.params.id,
+    productId,
     req.body,
     req.user!.companyId
   );
@@ -55,8 +71,16 @@ export async function update(req: Request, res: Response) {
 }
 
 export async function remove(req: Request, res: Response) {
+  const productId = req.params.id;
+
+  if (typeof productId !== "string") {
+    return res.status(400).json({
+      message: "Invalid product id",
+    });
+  }
+
   const product = await deleteProduct(
-    req.params.id,
+    productId,
     req.user!.companyId
   );
 

@@ -48,7 +48,7 @@ export async function updateProduct(
       $set: input,
     },
     {
-      new: true,
+      returnDocument: "after",
       runValidators: true,
     }
   );
